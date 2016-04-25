@@ -1,0 +1,39 @@
+# lasso
+betaT5 <- c(runif(5, min = -1, max = 1), rep(0, 5))
+adaptivelasso_simulation <- function(n = 50, p = 5, p1 = 10, k = 100){
+  beta_matrix <- matrix(0, p1, k)
+  
+  for(i in 1:k){
+    x <- matrix(0, n, p1)
+    a <- diag(1, p1, p1)
+    
+    for(j in 1:p1-1){
+      a[abs(row(a)-col(a))==j] <- 0.5^j
+    }
+    
+    x <- mvrnorm(n, mu = rep(0, p1), Sigma = a)
+    
+    y <- matrix(betaT5 %*% t(x) + rnorm(n), nrow = n, ncol=1)
+    
+    p <- ncol(x)
+    
+    XX <- crossprod(x, x)
+    Xy <- t(x) %*% y
+    
+    ridge <- solve(XX + diag(2, p1), Xy)
+    
+    w <- 1/abs(ridge[1:p1])
+    xstar <- matrix(0, n, p1)
+    for(j in 1:p1){
+      xstar[,j] <- x[,j]/w[j]
+    }
+    ##end simulation data
+    
+    sol.gcv <- GCV(xstar, y)
+    b <- seq(1, 10, length=50)
+    best_lambda <- b[which(sol.gcv==min(sol.gcv))] ##find the smallest one's lambda
+    beta_matrix[,i] <- shooting_lasso(xstar, y, best_lambda)[[1]]/w
+    print(i)
+  }
+  return(beta_matrix)
+}
