@@ -37,3 +37,7 @@ adaptivelasso_simulation <- function(n = 50, p = 5, p1 = 10, k = 100){
   }
   return(beta_matrix)
 }
+
+s <- proc.time()
+sstar10 <- adaptivelasso_simulation(n=50, p=5, p1=10, k=100)
+proc.time()-s
