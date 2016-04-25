@@ -1,0 +1,18 @@
+# lasso
+GCV <- function(x, y, begin=1, end=10, times=50){
+  n <- nrow(x)
+  a <- seq(begin, end, length=times)
+  all <- NULL
+  gcv_lasso <- NULL
+  for(j in 1:times){
+    sol <- shooting_lasso(x, y, lambda= a[j])
+    beta <- shooting_lasso(x, y, lambda= a[j])[[1]]
+    d.f <- shooting_lasso(x, y, lambda= a[j])[[4]]
+    for(i in 1:n){
+      all[i] <- sum((y[i,] - x[i,] %*%beta )^2)
+    }
+    gcv_lasso[j]  <- mean(all)/(n*(1-d.f/n)^2)
+  }
+  return(gcv_lasso)
+}
+GCV <- cmpfun(GCV)
