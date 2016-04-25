@@ -1,0 +1,40 @@
+# lasso
+adaptive_shooting_lasso <- function(X, y, lambda, tol = 1e-5,max_iter = 100000){
+  
+  p <- ncol(X)
+  
+  XX <- crossprod(X, X)
+  Xy <- t(X) %*% y
+
+  ridge <- solve(XX + diag(2, p1), Xy)
+  
+  w <- 1/abs(ridge[1:p1])
+  xstar <- matrix(0, n, p1)
+  for(j in 1:p1){
+    xstar[,j] <- X[,j]/w[j]
+  }
+  
+  converged <- FALSE
+  iteration <- 0
+  
+  while (!converged & (iteration < max_iter)){
+    
+    beta_lasso <- beta
+    
+    for(j in 1:p1){
+      lack_of_j <-  y - X[,-j]%*%t(t(beta[-j]))
+      aj <- 2*XX[j,j]
+      cj <- 2*X[,j]%*%lack_of_j
+      beta[j] <- zero_or_not(cj / aj, 2*lambda / aj)
+    }
+    
+    iteration <- iteration + 1
+    converged <- sum(abs(beta - beta_lasso)) < tol 
+  }
+  w <- ginv(XX+lambda*ginv(diag(beta[,1], p)))
+  smooth.matrix <- sum(diag(X%*%w%*%t(X)))
+  out <- list(beta = beta, n_iter = iteration, 
+              converged = converged, d.f = smooth.matrix)
+  return(out)
+  
+}
