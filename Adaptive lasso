@@ -1,0 +1,133 @@
+library(MASS)
+library(compiler)
+n <- 50; p1 <- 100; p <- 10
+#n <- 50; p1 <- 10; p <- 5
+data <- list()
+betaT <- c(5,9,7,-4,-8, rep(0, 95))
+set.seed(104024516)
+for(k in 1:100){
+  betaT <- c(5,9,7,-4,-8, rep(0, 95))
+  x <- matrix(0, n, p1)
+  a <- diag(1, p1, p1)
+  
+  for(j in 1:p1-1){
+    a[abs(row(a)-col(a))==j] <- 0.5^j
+  }
+  
+  x <- mvrnorm(n, mu = rep(0, p1), Sigma = a)
+  x <- apply(x, MARGIN = 2, function(x) (x-mean(x))/sd(x)) #standardize
+  y <- matrix(betaT %*% t(x) + rnorm(n), nrow = n, ncol=1)
+  y <- y-mean(y)
+  data[k] <- list(cbind(y,x))
+  print(k)
+}
+####   adaptive lasso
+zero_or_not <- function(a, b){
+  sign(a)*max(abs(a)-b, 0)
+}
+shooting_lasso_coordinate <- function(X, y, lambda , tol = 1e-5, max_iter = 100000){
+  p <- ncol(X)
+  
+  XX <- crossprod(X, X)
+  Xy <- crossprod(X, y)
+  
+  beta <- solve(XX + diag(lambda, p), Xy) #ridge reggresion
+  
+  converged <- FALSE
+  iteration <- 0
+  
+  while (!converged & (iteration < max_iter)){
+    
+    beta_lasso <- beta
+    
+    for(j in 1:p){
+      aj <- XX[j,j]
+      beta[j] <- zero_or_not((Xy[j] - crossprod(XX[,j], beta)+beta[j]*aj)/ aj, lambda / aj)
+    }
+    
+    
+    iteration <- iteration + 1
+    converged <- sum(abs(beta - beta_lasso)) < tol 
+  }
+  
+  
+  out <- list(beta = beta, n_iter = iteration, converged = converged)
+  return(out)
+}
+shooting_lasso_coordinate <- cmpfun(shooting_lasso_coordinate)
+adaptive_lasso <- function(x, y, breaks=5){
+  
+  all <- NULL
+  converged <- FALSE
+  residual <- NULL
+  cv_value <- NULL
+  iteration <- 0
+  beta <- list()
+  d.f <- list()
+  p <- ncol(x)
+  n <- nrow(x)
+  
+  XX <- crossprod(x, x)
+  Xy <- crossprod(x, y)
+  
+  ridge <- solve(XX + diag(2, p), Xy)
+  
+  w <- 1/abs(ridge[1:p])
+  xstar <- matrix(0, n, p)
+  for(j in 1:p){
+    xstar[,j] <- x[,j]/w[j]
+  }
+  
+  a <- seq(1, 2, length=100)
+  
+  folds <- cut(seq(1,nrow(xstar)),breaks=breaks,labels=FALSE)
+  
+  for(j in 1:100){
+    
+    for(m in 1:breaks){
+      testIndexes <- which(folds == m, arr.ind=TRUE)
+      
+      trainData <- xstar[-testIndexes, ]
+      y_train <- as.matrix(y[-testIndexes, ], nrow(trainData), 1)
+      
+      testData <- xstar[testIndexes, ]
+      y_test <- as.matrix(y[testIndexes, ], nrow(trainData), 1)
+      
+      shoot <- shooting_lasso_coordinate(trainData, y_train, lambda= a[j])
+      beta_cv <- shoot[[1]]#/w
+      
+      residual[m] <- sqrt(sum((y_test - testData%*%beta_cv)^2))
+      
+    }
+    cv_value[j] <- mean(residual)
+    print(j)
+  }
+  
+  index <- which.min(cv_value)
+  beta_matrix <- shooting_lasso_coordinate(xstar, y, lambda= a[index])[[1]]/w
+  outer <- list(beta_matrix = beta_matrix, cv_lasso = cv_value)
+  return(outer)
+}
+adaptive_lasso <- cmpfun(adaptive_lasso)
+########################################################################################################################
+library(snow)
+cl <- makeCluster(7, type = "SOCK")
+clusterExport(cl, 'adaptive_lasso')
+clusterExport(cl, 'shooting_lasso_coordinate')
+clusterExport(cl, 'zero_or_not')
+##parallel
+s <- proc.time() 
+sstar1000 <- parLapply(cl, data, function(x){
+  a <- matrix(x[,2:101],50,100)
+  b <- matrix(x[,1],50,1)
+  adaptive_lasso(x=a, y=b)})
+t_parallel <- proc.time()-s
+stopCluster(cl)
+abc <- NULL
+for(qq in 1:100){
+  abc[qq] <- which.min(sstar1000[[qq]]$cv_lasso)
+}
+index <- 17
+aa <- seq(1, 100, length=100)
+plot(aa, sstar1000[[index]]$cv_lasso)
+abline(v = aa[which.min(sstar1000[[index]]$cv_lasso)], col = 2)
