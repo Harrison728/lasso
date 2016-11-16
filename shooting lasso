@@ -1,5 +1,26 @@
-# lasso
+
+library(lassoshooting)
+library(MASS)
 library(compiler)
+
+###################################Simulation data
+
+set.seed(104024516)
+n <- 50 ;p <- 5 ; p1 <- 10 #p <- true model; p1 <- fake
+x <- matrix(0, n, p1)
+a <- diag(1, p1, p1)
+
+for(i in 1:p1-1){
+  a[abs(row(a)-col(a))==i] <- 0.5^i
+}
+
+x <- mvrnorm(n, mu = rep(0, p1), Sigma = a)
+
+betaT <- c(runif(p, min = -1, max = 1), rep(0, p1-p))
+
+y <- betaT %*% t(x) + rnorm(n)
+
+###################################LASSO_shooting Algorithm
 
 zero_or_not <- function(a, b){
   sign(a)*pmax(abs(a)-b, 0)
@@ -9,9 +30,11 @@ shooting_lasso <- function(X, y, lambda, tol = 1e-5,max_iter = 100000){
   p <- ncol(X)
   
   XX <- crossprod(X, X)
+  XX2 <- 2 * XX
   Xy <- t(X) %*% y
+  Xy2 <- 2 * Xy
   
-  beta <- solve(XX + diag(lambda, p1), Xy) #ridge reggresion
+  beta <- solve(XX + diag(lambda, p, p), Xy) #ridge reggresion
   
   converged <- FALSE
   iteration <- 0
@@ -20,20 +43,54 @@ shooting_lasso <- function(X, y, lambda, tol = 1e-5,max_iter = 100000){
     
     beta_lasso <- beta
     
-    for(j in 1:p1){
+    for(j in 1:p){
       lack_of_j <-  y - X[,-j]%*%t(t(beta[-j]))
-      aj <- 2*XX[j,j]
+      aj <- XX2[j,j]
       cj <- 2*X[,j]%*%lack_of_j
-      beta[j] <- zero_or_not(cj / aj, 2*lambda / aj)
+      #beta[j] <- zero_or_not(cj / aj, 2*lambda / aj)
+      beta[j] <- ifelse(abs(cj/aj) > 2*lambda / aj, sign(cj/aj) * (abs(cj/aj)-2*lambda / aj) , 0)
     }
     
     iteration <- iteration + 1
     converged <- sum(abs(beta - beta_lasso)) < tol 
   }
-  w <- ginv(XX+lambda*ginv(diag(beta[,1], p)))
-  smooth.matrix <- sum(diag(X%*%w%*%t(X)))
+  
   out <- list(beta = beta, n_iter = iteration, 
-              converged = converged, d.f = smooth.matrix)
+              converged = converged)
   return(out)
 }
-shooting_lasso <- cmpfun(shooting_lasso)
+
+shooting_lasso <- cmpfun(shooting_lasso)#accelarate
+
+###################################Lasso Graph
+
+v <- NULL
+for(i in 1:p1){
+  for(j in 1:100){
+    v[j] <- shooting_lasso(x, t(y), lambda = j)[[1]][i]
+  }
+  if (i==1){
+    plot(log(1:100), v, col=i, ylim=c(-1, 1), type="l", lwd=1, xlab=expression(log(lambda)), ylab="coefficient", main="Simulation p=100 and n=50")
+    
+  }else{
+    lines(log(1:100), v, col=i, lwd=1)
+    
+  }
+  abline(v=log(which(v==0)[1]), col=i, lty=2, lwd=1)
+  points(log(which(v==0)[1]),0, pch=4, col=1, cex=2)
+}
+
+###################################lassoshooting package
+for(k in 1 : p1){
+  for(m in 1 : 100){
+    v[m] <- lassoshooting(x, t(y), lambda = as.numeric(m))[[1]][as.numeric(k)]
+    
+  }
+  if (k==1){
+    plot(log(1:100), v, col=k, ylim=c(-1, 1), type="l", lwd=1, xlab=expression(log(lambda)), ylab="coefficient", main="Lassoshooting package")
+  }else{
+    lines(log(1:100), v, col=k, lwd=1)
+  }
+}
+
+which(v==0)[1]
