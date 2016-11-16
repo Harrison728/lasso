@@ -1,0 +1,125 @@
+rm(list=ls())
+library(MASS)
+library(compiler)
+## simulation data
+n <- 50; p1 <- 10; p <- 5
+data <- list()
+betaT <- c(5,9,7,-4,-8, rep(0, 5))
+set.seed(104024516)
+for(k in 1:100){
+  betaT <- c(5,9,7,-4,-8, rep(0, 5))
+  x <- matrix(0, n, p1)
+  a <- diag(1, p1, p1)
+  
+  for(j in 1:p1-1){
+    a[abs(row(a)-col(a))==j] <- 0.5^j
+  }
+  
+  x <- mvrnorm(n, mu = rep(0, p1), Sigma = a)
+  #x <- apply(x, MARGIN = 2, function(x) (x-mean(x))/sd(x)) #standardize
+  y <- matrix(betaT %*% t(x) + rnorm(n), nrow = n, ncol=1)
+  #y <- y-mean(y)
+  data[k] <- list(cbind(y,x))
+  print(k)
+}
+##adaptive lasso
+adaptive_lasso_coordinate <- function(X, y, lambda, beta = NULL, tol = 1e-5, max_iter = 100000){
+  
+  sd_x <- apply(X, MARGIN = 2, function(x) sd(x))
+  X_stand <- apply(X, MARGIN = 2, function(x) (x-mean(x))/sd(x))
+  y <- y-mean(y)
+  
+  p <- ncol(X)
+  n <- nrow(X)
+  
+  XX <- crossprod(X_stand, X_stand)
+  Xy <- crossprod(X_stand, y)
+  
+  ifelse(is.null(beta), beta <- solve(XX + diag(lambda, p), Xy), beta <- beta)
+  #beta <- solve(XX + diag(lambda, p), Xy) #ridge reggresion
+  
+  weight <- abs(1/beta)
+  
+  lambda_star <- lambda * weight  / sd_x
+  
+  converged <- FALSE
+  iteration <- 0
+  
+  while (!converged & (iteration < max_iter)){
+    
+    beta_lasso <- beta
+    
+    for(j in 1:p){
+      aj <- XX[j,j]
+      a <- (Xy[j] - crossprod(XX[,j], beta)+beta[j]*aj)/ aj
+      b <- lambda_star[j] / aj
+      
+      beta[j] <- ifelse(abs(a) > b, sign(a) * (abs(a) - b), 0)
+      
+    }
+    
+    iteration <- iteration + 1
+    converged <- sum(abs(beta - beta_lasso)) < tol 
+  }
+  
+  beta_star <- beta / sd_x
+  
+  XX <- crossprod(X, X)
+  Xy <- crossprod(X, y)
+  
+  id <- which(beta_star[,1] != 0)
+  beta_A <- beta_star[id ,1]
+  XX_A <- XX[id, id]
+  X_A <- X[,id]
+  
+  w <- solve(XX_A+lambda*diag(abs(beta_A^(-1)), length(id))) 
+  smooth.matrix <- sum(diag((X_A%*%w%*%t(X_A)))) 
+  
+  gcv <- sum((t(y) - as.vector(crossprod(beta_star, t(X))) )^2) / (1 - smooth.matrix/n)^2
+  
+  out <- list(beta = beta_star, n_iter = iteration, converged = converged, d.f = smooth.matrix, gcv = gcv)
+  
+  return(out)
+}
+a <- seq(0.001, 15, length=100)
+sstar <- list()
+x <- data[[1]][,2:11]
+y <- data[[1]][,1]
+for(j in 1:100){
+  if(j==1)  sstar[j] <- list(adaptive_lasso_coordinate(x,y,a[j]))
+  else
+    sstar[j] <- list(adaptive_lasso_coordinate(x, y, a[j], sstar[[j-1]]$beta))
+  
+  print(j)
+}
+ggcv <- NULL
+for(i in 1:100){
+  ggcv[i] <- sstar[[i]]$gcv
+}
+plot(ggcv)
+which.min(ggcv)
+a[11]
+cv.adaptive.lasso <- function(x, y, lambda = seq(0.001, 100, length = 100), breaks = 5){
+  
+  all <-NULL
+  cv_lasso <- NULL
+  
+  folds <- cut(seq(1,nrow(x)),breaks=breaks,labels=FALSE)
+  
+  for(j in 1:length(lambda)){
+    for(i in 1:nrow(x)){
+      all[i] <- sum((y[i] - x[i,] %*% adaptive_lasso_coordinate(x[-i,], as.matrix(y[-i]), lambda= lambda[j])[[1]] )^2)
+    }
+    cv_lasso[j]  <- mean(all)
+    print(j)
+  }
+  
+  outer <- matrix(c(lambda, cv_lasso), length(lambda), 2)
+  colnames(outer) <- c('lambda', 'cv_value')
+  
+  return(outer)
+}
+loocv <- cv.adaptive.lasso(x, y, lambda = seq(0.001, 15, length = 100), breaks = 50)
+which.min(loocv[,2])
+seq(0.001, 15, length = 100)[27]
+plot(loocv[,2], type='b')
